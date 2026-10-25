@@ -1,0 +1,22 @@
+#!/bin/sh
+# 首启定制：仅两项 —— LAN 出厂地址 + root 密码（其余全默认，恢复阶段再动）
+# uci-defaults 机制：exit 0 后自删
+set -e
+
+# root 密码 = password（你指定的"默认密码"；dropbear 密码登录开箱可用，恢复期 SSH 靠它）
+printf 'password\npassword\n' | passwd root >/dev/null 2>&1 || true
+
+# LAN 出厂地址（iKuai 在 .1，本机必须 static .2 才不冲突、网关指回 .1）
+uci set network.lan.proto='static'
+uci set network.lan.ipaddr='192.168.1.2'
+uci set network.lan.netmask='255.255.255.0'
+uci set network.lan.gateway='192.168.1.1'
+uci commit network
+
+# LuCI 默认启用 Argon 主题；主机名用 OpenWrt（不用 ImmortalWrt 默认名）
+uci set luci.main.mediaurlbase='/luci-static/argon'
+uci commit luci
+uci set system.@system[0].hostname='OpenWrt'
+uci commit system
+
+exit 0

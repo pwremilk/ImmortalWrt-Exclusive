@@ -1,0 +1,178 @@
+name: Build ImmortalWrt
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "ImmortalWrt tag (empty = auto latest v25.12.x)"
+        required: false
+        default: ""
+      force:
+        description: "Force rebuild even if release exists"
+        type: boolean
+        required: false
+        default: false
+  schedule:
+    - cron: "0 18 * * *"   # 02:00 北京时间，每天检查上游新版本
+
+env:
+  REPO: immortalwrt/immortalwrt
+  VERSION_SERIES: "v25\\.12\\."
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    steps:
+      - name: Checkout this repo
+        uses: actions/checkout@v4
+
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL /usr/local/.ghcup || true
+          sudo docker image prune -af >/dev/null 2>&1 || true
+          df -h / | tail -1
+
+      - name: Resolve latest stable tag
+        id: tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [ -n "${{ inputs.version }}" ]; then
+            TAG="${{ inputs.version }}"
+          else
+            for i in 1 2 3; do
+              TAG=$(curl -s --retry 2 "https://api.github.com/repos/${REPO}/tags?per_page=100" \
+                | grep -oE '"name": "v[0-9]+\.[0-9]+\.[0-9]+"' | sort -Vr | head -1 | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+') && [ -n "$TAG" ] && break
+              sleep 10
+            done
+          fi
+          TAG="${TAG:-v25.12.2}"
+          echo "resolved tag: $TAG"
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
+          echo "IMM_TAG=$TAG" >> $GITHUB_ENV
+          if [ "${{ inputs.force }}" != "true" ]; then
+            if curl -sf "https://api.github.com/repos/${{ github.repository }}/releases/tags/ImmortalWrt-$TAG" | grep -q '"tag_name"'; then
+              echo "release ImmortalWrt-$TAG already exists, skip"
+              echo "skip=true" >> $GITHUB_OUTPUT
+            fi
+          fi
+
+      - name: Skip notice
+        if: steps.tag.outputs.skip == 'true'
+        run: echo "Up to date. Add --field inputs.force=true to rebuild manually."
+
+      - name: Install build dependencies
+        if: steps.tag.outputs.skip != 'true'
+        run: |
+          sudo apt-get update
+          sudo apt-get -y install build-essential clang flex bison g++ gawk \
+            libncurses-dev libssl-dev libelf-dev python3 python3-setuptools \
+            rsync unzip zlib1g-dev file wget antlr3-gettext-macro-timezone-measure 2>/dev/null || \
+          sudo apt-get -y install build-essential clang flex bison g++ gawk \
+            libncurses-dev libssl-dev libelf-dev python3 python3-setuptools \
+            rsync unzip zlib1g-dev file wget antlr3 gettext libtool-bin
+
+      - name: Clone ImmortalWrt
+        if: steps.tag.outputs.skip != 'true'
+        run: |
+          git clone -b "$IMM_TAG" --depth 1 "https://github.com/${REPO}.git" openwrt
+
+      - name: Apply customization
+        if: steps.tag.outputs.skip != 'true'
+        run: |
+          cp -a files/. openwrt/files/ 2>/dev/null || { mkdir -p openwrt/files && cp -a files/. openwrt/files/; }
+          # append extra feeds
+          cat feeds.conf.extra >> openwrt/feeds.conf.default
+          # drop apkg if present to avoid clash with feeds flow
+          sed -i '/src-git apkg/d' openwrt/feeds.conf.default || true
+          cp config/imm.config openwrt/dotconfig.seed
+          cp scripts/diy2.sh openwrt/diy2.sh
+          chmod +x openwrt/diy2.sh
+
+      - name: Update feeds
+        if: steps.tag.outputs.skip != 'true'
+        working-directory: openwrt
+        run: |
+          ./scripts/feeds update -a
+          # 索引体检：任何 feed 元数据为空都立即止损
+          for idx in feeds/*.index; do
+            [ -s "$idx" ] || { echo "FATAL: 空索引 $idx（扫描静默失败）"; exit 1; }
+          done
+          echo "indexes OK"
+
+      - name: Configure
+        if: steps.tag.outputs.skip != 'true'
+        working-directory: openwrt
+        run: |
+          # passwall 官方要求：移除 feeds 自带的同名核心库，改用 passwall 源版本
+          rm -rf feeds/packages/net/{xray-core,v2ray-geodata,sing-box,chinadns-ng,dns2socks,hysteria,ipt2socks,microsocks,naiveproxy,shadowsocks-rust,shadowsocksr-libev,simple-obfs,tcping,v2ray-plugin,xray-plugin,geoview,shadow-tls,smartdns} 2>/dev/null || true
+          rm -rf feeds/luci/applications/luci-app-passwall 2>/dev/null || true
+          cp dotconfig.seed .config
+          ./scripts/feeds install -a
+          # 第三方源强制覆盖同名官方包（sbwml mosdns、passwall 全家桶优先）
+          for f in nikki passwall_packages passwall_luci mosdns argontheme; do
+            ./scripts/feeds install -a -f "$f"
+          done
+          bash diy2.sh
+          make defconfig
+          echo "==== sanity ===="
+          grep -E "^CONFIG_TARGET_ROOTFS_PARTSIZE=|nikki=|mosdns=|passwall=|argon=|KERNEL" .config | head -12
+          # 硬闸门：核心选择必须活着进入 .config，缺一个就直接停
+          for s in CONFIG_PACKAGE_luci=y CONFIG_PACKAGE_luci-app-nikki=y CONFIG_PACKAGE_mihomo-meta=y CONFIG_PACKAGE_luci-app-mosdns=y CONFIG_PACKAGE_mosdns=y CONFIG_PACKAGE_luci-app-passwall=y CONFIG_PACKAGE_luci-theme-argon=y CONFIG_PACKAGE_luci-app-upnp=y CONFIG_TARGET_ROOTFS_PARTSIZE=976; do
+            grep -q "^${s}$" .config || {
+              echo "FATAL: $s 未在最终 .config 中"
+              pkg=${s#CONFIG_PACKAGE_}; pkg=${pkg%=y}
+              awk "/^config PACKAGE_${pkg}\$/,/^$/" tmp/.config-package.in 2>/dev/null | head -8
+              ls "package/feeds/${pkg%%/*}" 2>/dev/null | grep "$pkg" || echo "(feed 中未见该包目录)"
+              exit 1; }
+          done
+          echo "sanity PASS"
+
+      - name: Download packages
+        if: steps.tag.outputs.skip != 'true'
+        working-directory: openwrt
+        run: |
+          (make -j$(nproc) download V=w 2>&1 | tail -5) || true
+          make download V=w -j1 2>&1 | tail -3 || true
+
+      - name: Build
+        if: steps.tag.outputs.skip != 'true'
+        working-directory: openwrt
+        run: |
+          make -j$(($(nproc)-1)) V=s > /tmp/build.log 2>&1 || {
+            echo "==== parallel build failed, retry serial ===="
+            make -j1 V=s > /tmp/build2.log 2>&1 || {
+              echo "==== tail of logs ===="; tail -50 /tmp/build.log; tail -50 /tmp/build2.log; exit 1; }
+          }
+          find bin/targets -name "immortalwrt*x86-64*combined-efi*sysupgrade*" | tee /tmp/artifacts.txt
+
+      - name: Upload artifact (backup)
+        if: steps.tag.outputs.skip != 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: fw-${{ steps.tag.outputs.tag }}
+          path: openwrt/bin/targets/*/*/*.img.gz
+          retention-days: 90
+          if-no-files-found: error
+
+      - name: Publish release
+        if: steps.tag.outputs.skip != 'true'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ImmortalWrt-${{ steps.tag.outputs.tag }}
+          name: "ImmortalWrt ${{ steps.tag.outputs.tag }} (定制固件)"
+          files: openwrt/bin/targets/*/*/*.img.gz
+          body: |
+            基于 ImmortalWrt ${{ steps.tag.outputs.tag }}。
+            旁路由固件。管理地址 http://192.168.1.2 ，登录 root / password。
+            BIOS 虚拟机刷 generic-ext4-combined.img.gz，UEFI 刷 -efi 版。
+
+      - name: NanoMuse TG push
+        if: always() && steps.tag.outputs.skip != 'true' && env.NANOMUSE_TG_TOKEN != ''
+        env:
+          NANOMUSE_TG_TOKEN: ${{ secrets.NANOMUSE_TG_TOKEN }}
+          NANOMUSE_CHAT: ${{ secrets.NANOMUSE_CHAT }}
+          FW_TAG: ${{ steps.tag.outputs.tag }}
+          BUILD_CONCLUSION: ${{ job.status }}
+        run: python3 scripts/notify.py
