@@ -83,8 +83,9 @@ jobs:
         run: |
           cp -a files/. openwrt/files/ 2>/dev/null || { mkdir -p openwrt/files && cp -a files/. openwrt/files/; }
           # 第三方源置顶：feeds 安装先到先得，保证 sbwml/passwall 版本压过官方同名包
+          # passwall_packages(依赖库)排尾部：官方 xray-core(26.3)兼容 golang1.26，passwall 源的 26.10 需要 go1.27 编不动
           grep -v 'src-git apkg' openwrt/feeds.conf.default > openwrt/fc.tmp
-          cat feeds.conf.extra openwrt/fc.tmp > openwrt/feeds.conf.default
+          cat feeds.conf.extra openwrt/fc.tmp feeds.conf.tail > openwrt/feeds.conf.default
           rm openwrt/fc.tmp
           cp config/imm.config openwrt/dotconfig.seed
           cp scripts/diy2.sh openwrt/diy2.sh
@@ -124,6 +125,7 @@ jobs:
           [ -e package/feeds/mosdns/mosdns ] && [ ! -e package/feeds/packages/mosdns ] || { echo "FATAL: mosdns 出处不对(sbwml未胜出或官方重复在链)"; ls package/feeds/*/mosdns 2>/dev/null; exit 1; }
           [ -e package/feeds/passwall_luci/luci-app-passwall ] && [ ! -e package/feeds/luci/luci-app-passwall ] || { echo "FATAL: passwall 出处不对"; ls package/feeds/*/luci-app-passwall 2>/dev/null; exit 1; }
           [ -e package/feeds/nikki/mihomo-meta ] || { echo "FATAL: mihomo-meta 未从 nikki 源安装"; exit 1; }
+          [ -e package/feeds/packages/xray-core ] && [ ! -e package/feeds/passwall_packages/xray-core ] || { echo "FATAL: xray-core 未走官方源(go版本兼容)"; ls package/feeds/*/xray-core 2>/dev/null; exit 1; }
           echo "sanity PASS"
 
       - name: Download packages

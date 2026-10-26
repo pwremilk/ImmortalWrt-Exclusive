@@ -1,6 +1,6 @@
-# 追加源（拼到 feeds.conf.default 后面）
+# 追加源（拼到 feeds.conf.default 顶部）
+# 注：passwall_packages 依赖层在 feeds.conf.tail（排官方源后）——
+# 其超新 xray-core 需 Go>=1.27，本系列 golang 仅 1.26，官方同名版兼容
 src-git nikki https://github.com/nikkinikki-org/OpenWrt-nikki.git;main
 src-git passwall_luci https://github.com/Openwrt-Passwall/openwrt-passwall.git;main
-src-git passwall_packages https://github.com/Openwrt-Passwall/openwrt-passwall-packages.git;main
 src-git mosdns https://github.com/sbwml/luci-app-mosdns.git;v5
-# argon 主题由 ImmortalWrt 自带 luci 源提供，无需外挂源

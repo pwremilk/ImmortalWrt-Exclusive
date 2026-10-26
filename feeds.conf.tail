@@ -1,0 +1,2 @@
+# 追加源（拼到 feeds.conf.default 尾部）：passwall 依赖库，官方同名优先
+src-git passwall_packages https://github.com/Openwrt-Passwall/openwrt-passwall-packages.git;main
