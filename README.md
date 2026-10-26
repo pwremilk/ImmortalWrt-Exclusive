@@ -1,8 +1,11 @@
 # ImmortalWrt-Exclusive
 
-ImmortalWrt 稳定版自动定制编译仓库（x86/64 EFI）。
+ImmortalWrt 自动定制编译仓库（x86/64 EFI），**双版本自由选择**：
 
-跟踪 ImmortalWrt **正式发布版**（自动跳过 rc/快照，含跨系列），出现新版本自动编译并发布固件到 Releases（tag `ImmortalWrt-<版本>`）。
+| 版本 | Release tag | 内容 |
+|---|---|---|
+| 稳定版 | `ImmortalWrt-v25.12.x` | 跟踪上游正式发布版（自动跳过 rc/快照），出现新版本自动编译发布 |
+| master 快照 | `ImmortalWrt-master-日期` | 每天跟上游 master（内核/软件包最新），保留最近 7 个 |
 
 ## 包含组件
 | 组件 | 来源 |
@@ -16,11 +19,11 @@ ImmortalWrt 稳定版自动定制编译仓库（x86/64 EFI）。
 固件默认启用 Argon 主题，内置 nikki / PassWall 的 apk 软件源与签名公钥，插件可在 LuCI 软件页在线更新。
 
 ## 触发方式
-- 定时：每天自动检查上游新版本，有则编译发布，无则跳过
-- 手动：Actions → Build ImmortalWrt → Run workflow（可指定版本 / force 强制重编）
+- 定时：稳定版每天检查上游新版本（有则编译发布）；master 版每天凌晨编译当日快照
+- 手动：Actions → Build ImmortalWrt（稳定版，可指定版本/force）或 Build ImmortalWrt master（快照，可 force）
 
 ## 使用
-刷入后出厂参数（旁路由固件）：
+Releases 内稳定版与 master 快照并列，按需要在版本页面自由选择下载。刷入后出厂参数（旁路由固件）：
 - 管理地址：`http://192.168.1.2`（LAN 静态 192.168.1.2/24，网关 192.168.1.1）
 - DNS：223.5.5.5 / 119.29.29.29
 - 登录：用户名 `root`，密码 `password`
