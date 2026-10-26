@@ -111,22 +111,22 @@ jobs:
           cp dotconfig.seed .config
           ./scripts/feeds install -a
           # 第三方源强制覆盖同名官方包（sbwml mosdns、passwall 全家桶优先）
-          for f in nikki passwall_packages passwall_luci mosdns argontheme; do
+          for f in nikki passwall_packages passwall_luci mosdns; do
             ./scripts/feeds install -a -f "$f"
           done
           bash diy2.sh
           make defconfig
           echo "==== sanity ===="
           grep -E "^CONFIG_TARGET_ROOTFS_PARTSIZE=|nikki=|mosdns=|passwall=|argon=|KERNEL" .config | head -12
-          # 硬闸门：核心选择必须活着进入 .config，缺一个就直接停
-          for s in CONFIG_PACKAGE_luci=y CONFIG_PACKAGE_luci-app-nikki=y CONFIG_PACKAGE_mihomo-meta=y CONFIG_PACKAGE_luci-app-mosdns=y CONFIG_PACKAGE_mosdns=y CONFIG_PACKAGE_luci-app-passwall=y CONFIG_PACKAGE_luci-theme-argon=y CONFIG_PACKAGE_luci-app-upnp=y CONFIG_TARGET_ROOTFS_PARTSIZE=976; do
-            grep -q "^${s}$" .config || {
-              echo "FATAL: $s 未在最终 .config 中"
-              pkg=${s#CONFIG_PACKAGE_}; pkg=${pkg%=y}
-              awk "/^config PACKAGE_${pkg}\$/,/^$/" tmp/.config-package.in 2>/dev/null | head -8
-              ls "package/feeds/${pkg%%/*}" 2>/dev/null | grep "$pkg" || echo "(feed 中未见该包目录)"
+          # 硬闸门：符号必须"已定义+选中"双确认（未知符号在 .config 里会假存活）
+          for p in luci luci-app-nikki mihomo-meta luci-app-mosdns mosdns luci-app-passwall luci-theme-argon luci-app-upnp; do
+            grep -qE "^[[:space:]]*config PACKAGE_${p}\$" tmp/.config-package.in || { echo "FATAL: $p 未被构建系统识别（源未装好）"; exit 1; }
+            grep -q "^CONFIG_PACKAGE_${p}=y$" .config || {
+              echo "FATAL: $p 未选中，依赖情况："
+              awk "/^[[:space:]]*config PACKAGE_${p}\$/,/^$/" tmp/.config-package.in | head -8
               exit 1; }
           done
+          grep -q "^CONFIG_TARGET_ROOTFS_PARTSIZE=976$" .config || { echo "FATAL: PARTSIZE 丢失"; exit 1; }
           echo "sanity PASS"
 
       - name: Download packages
