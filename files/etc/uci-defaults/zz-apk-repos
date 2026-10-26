@@ -1,0 +1,25 @@
+#!/bin/sh
+# 构建系统按本仓库 feeds.conf 生成 distfeeds.list，第三方 feed 别名（mosdns/nikki/passwall_luci/
+# passwall_packages/video）上游并不发布，留着会让 apk update 永远以「失败仓库数」为非零退出码
+# （apk-tools 3 的约定，rc=5 = 5 个仓库拉不到）。第三方索引在 customfeeds.list，此处不动。
+# 域名固定官方站：99-default-settings-chinese 首启会把 downloads.immortalwrt.org 一律 sed 成
+# mirrors.vsean.net（该域现已 302 到 ustc 并回 403）。文件名 zz- 前缀保证排在所有 99-*/luci-* 之后。
+# 华为源的 .adb 让 apk 报 file format is invalid or inconsistent，不可用；南大源与官方逐字节一致。
+# uci_apply_defaults 用 ( . ./file ) 的返回值决定是否删除本脚本：不能写 set -e，结尾必须 exit 0。
+
+f=/etc/apk/repositories.d/distfeeds.list
+[ -s "$f" ] || exit 0
+
+t=$(grep -o 'releases/[0-9][0-9.]*/targets/[a-z0-9]*/[a-z0-9]*/packages/packages.adb' "$f" | head -1)
+[ -n "$t" ] || exit 0
+v=$(printf '%s\n' "$t" | cut -d/ -f2)
+a=$(cat /etc/apk/arch 2>/dev/null)
+[ -n "$v" ] && [ -n "$a" ] || exit 0
+
+{ echo "https://downloads.immortalwrt.org/$t"
+	for feed in base luci packages routing telephony; do
+		echo "https://downloads.immortalwrt.org/releases/$v/packages/$a/$feed/packages.adb"
+	done
+} > "$f.tmp" && mv "$f.tmp" "$f"
+
+exit 0
