@@ -15,6 +15,10 @@ on:
   schedule:
     - cron: "0 18 * * *"   # 02:00 北京时间，每天检查上游新版本
 
+# 没有这段 permissions 时 GITHUB_TOKEN 默认只读，Publish release 会 403 Resource not accessible by integration
+permissions:
+  contents: write
+
 env:
   REPO: immortalwrt/immortalwrt
   VERSION_SERIES: "v25\\.12\\."
@@ -165,7 +169,6 @@ jobs:
           body: |
             基于 ImmortalWrt ${{ steps.tag.outputs.tag }}。
             旁路由固件。管理地址 http://192.168.1.2 ，登录 root / password。
-            DNS 223.5.5.5 / 119.29.29.29。
             BIOS 虚拟机刷 generic-ext4-combined.img.gz，UEFI 刷 -efi 版。
             提供 master 快照版 Release 可选，偏好尝鲜可自由选择。
 
