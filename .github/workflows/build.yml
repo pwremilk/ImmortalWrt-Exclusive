@@ -163,6 +163,7 @@ jobs:
           body: |
             基于 ImmortalWrt ${{ steps.tag.outputs.tag }}。
             旁路由固件。管理地址 http://192.168.1.2 ，登录 root / password。
+            出厂 DNS 223.5.5.5 / 119.29.29.29，刷完即有网。
             BIOS 虚拟机刷 generic-ext4-combined.img.gz，UEFI 刷 -efi 版。
 
       - name: NanoMuse TG push
