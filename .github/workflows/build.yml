@@ -82,10 +82,10 @@ jobs:
         if: steps.tag.outputs.skip != 'true'
         run: |
           cp -a files/. openwrt/files/ 2>/dev/null || { mkdir -p openwrt/files && cp -a files/. openwrt/files/; }
-          # append extra feeds
-          cat feeds.conf.extra >> openwrt/feeds.conf.default
-          # drop apkg if present to avoid clash with feeds flow
-          sed -i '/src-git apkg/d' openwrt/feeds.conf.default || true
+          # 第三方源置顶：feeds 安装先到先得，保证 sbwml/passwall 版本压过官方同名包
+          grep -v 'src-git apkg' openwrt/feeds.conf.default > openwrt/fc.tmp
+          cat feeds.conf.extra openwrt/fc.tmp > openwrt/feeds.conf.default
+          rm openwrt/fc.tmp
           cp config/imm.config openwrt/dotconfig.seed
           cp scripts/diy2.sh openwrt/diy2.sh
           chmod +x openwrt/diy2.sh
@@ -105,15 +105,8 @@ jobs:
         if: steps.tag.outputs.skip != 'true'
         working-directory: openwrt
         run: |
-          # passwall 官方要求：移除 feeds 自带的同名核心库，改用 passwall 源版本
-          rm -rf feeds/packages/net/{xray-core,v2ray-geodata,sing-box,chinadns-ng,dns2socks,hysteria,ipt2socks,microsocks,naiveproxy,shadowsocks-rust,shadowsocksr-libev,simple-obfs,tcping,v2ray-plugin,xray-plugin,geoview,shadow-tls,smartdns} 2>/dev/null || true
-          rm -rf feeds/luci/applications/luci-app-passwall 2>/dev/null || true
           cp dotconfig.seed .config
           ./scripts/feeds install -a
-          # 第三方源强制覆盖同名官方包（sbwml mosdns、passwall 全家桶优先）
-          for f in nikki passwall_packages passwall_luci mosdns; do
-            ./scripts/feeds install -a -f "$f"
-          done
           bash diy2.sh
           make defconfig
           echo "==== sanity ===="
@@ -127,6 +120,10 @@ jobs:
               exit 1; }
           done
           grep -q "^CONFIG_TARGET_ROOTFS_PARTSIZE=976$" .config || { echo "FATAL: PARTSIZE 丢失"; exit 1; }
+          # 出处断言：关键包必须来自第三方源，且官方同名副本不得同时在链
+          [ -e package/feeds/mosdns/mosdns ] && [ ! -e package/feeds/packages/mosdns ] || { echo "FATAL: mosdns 出处不对(sbwml未胜出或官方重复在链)"; ls package/feeds/*/mosdns 2>/dev/null; exit 1; }
+          [ -e package/feeds/passwall_luci/luci-app-passwall ] && [ ! -e package/feeds/luci/luci-app-passwall ] || { echo "FATAL: passwall 出处不对"; ls package/feeds/*/luci-app-passwall 2>/dev/null; exit 1; }
+          [ -e package/feeds/nikki/mihomo-meta ] || { echo "FATAL: mihomo-meta 未从 nikki 源安装"; exit 1; }
           echo "sanity PASS"
 
       - name: Download packages
