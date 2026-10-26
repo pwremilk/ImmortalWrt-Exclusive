@@ -166,6 +166,7 @@ jobs:
           tag_name: ImmortalWrt-${{ steps.tag.outputs.tag }}
           name: "ImmortalWrt ${{ steps.tag.outputs.tag }} (定制固件)"
           files: openwrt/bin/targets/*/*/*.img.gz
+          overwrite_files: true
           body: |
             基于 ImmortalWrt ${{ steps.tag.outputs.tag }}。
             旁路由固件。管理地址 http://192.168.1.2 ，登录 root / password。
