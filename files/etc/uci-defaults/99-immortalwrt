@@ -11,6 +11,10 @@ uci set network.lan.proto='static'
 uci set network.lan.ipaddr='192.168.1.2'
 uci set network.lan.netmask='255.255.255.0'
 uci set network.lan.gateway='192.168.1.1'
+# 出厂 DNS 兜底：本机 dnsmasq 有明文上游，iKuai 下发 .2 作 DNS 时全屋刷完即有网
+uci -q delete network.lan.dns
+uci add_list network.lan.dns='223.5.5.5'
+uci add_list network.lan.dns='119.29.29.29'
 uci commit network
 
 # LuCI 默认启用 Argon 主题；主机名用 OpenWrt（不用 ImmortalWrt 默认名）
