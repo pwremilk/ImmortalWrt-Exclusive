@@ -56,8 +56,27 @@ jobs:
           echo "tag=$TAG" >> $GITHUB_OUTPUT
           echo "IMM_TAG=$TAG" >> $GITHUB_ENV
           if [ "${{ inputs.force }}" != "true" ]; then
-            if curl -sf "https://api.github.com/repos/${{ github.repository }}/releases/tags/ImmortalWrt-$TAG" | grep -q '"tag_name"'; then
-              echo "release ImmortalWrt-$TAG already exists, skip"
+            # skip 检查带重试；API 限流/EOF/超时一律兜底按"已存在"处理，避免误触发全量重建
+            determined=false
+            for i in 1 2 3; do
+              code=$(curl -s -o /dev/null -w '%{http_code}' "https://api.github.com/repos/${{ github.repository }}/releases/tags/ImmortalWrt-$TAG")
+              if [ "$code" = "200" ]; then
+                echo "release ImmortalWrt-$TAG already exists, skip"
+                echo "skip=true" >> $GITHUB_OUTPUT
+                determined=true
+                break
+              elif [ "$code" = "404" ]; then
+                echo "release ImmortalWrt-$TAG does not exist, will build"
+                determined=true
+                break
+              else
+                echo "API check returned $code (rate-limit/EOF?), retry $i"
+                sleep 8
+              fi
+            done
+            if [ "$determined" != "true" ]; then
+              # 三次都拿不到明确结果：视为已存在，跳过，避免白烧一次 2h 编译
+              echo "release existence undetermined after retries, skipping to be safe"
               echo "skip=true" >> $GITHUB_OUTPUT
             fi
           fi
@@ -125,6 +144,11 @@ jobs:
               exit 1; }
           done
           grep -q "^CONFIG_TARGET_ROOTFS_PARTSIZE=976$" .config || { echo "FATAL: PARTSIZE 丢失"; exit 1; }
+          # rust 闸门：passwall 的 shadowsocks-rust 在 x86_64 默认开，会拖 rust/host 编译，
+          # 而当前快照钉的 rust 1.96.0 ci-llvm 产物已被上游清除必然 404。必须确认已被关闭。
+          grep -q "^CONFIG_PACKAGE_luci-app-passwall_INCLUDE_Shadowsocks_Rust_Client=y$" .config && { echo "FATAL: shadowsocks-rust Client 又被选中(会拖 rust 编译挂死)"; exit 1; }
+          grep -q "^CONFIG_PACKAGE_shadowsocks-rust=y$" .config && { echo "FATAL: shadowsocks-rust 又被选中(会拖 rust 编译挂死)"; exit 1; }
+          echo "rust-gate PASS (shadowsocks-rust 已关)"
           # 出处断言：关键包必须来自第三方源，且官方同名副本不得同时在链
           [ -e package/feeds/mosdns/mosdns ] && [ ! -e package/feeds/packages/mosdns ] || { echo "FATAL: mosdns 出处不对(sbwml未胜出或官方重复在链)"; ls package/feeds/*/mosdns 2>/dev/null; exit 1; }
           [ -e package/feeds/passwall_luci/luci-app-passwall ] && [ ! -e package/feeds/luci/luci-app-passwall ] || { echo "FATAL: passwall 出处不对"; ls package/feeds/*/luci-app-passwall 2>/dev/null; exit 1; }
