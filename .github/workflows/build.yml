@@ -125,6 +125,29 @@ jobs:
           done
           echo "indexes OK"
 
+      - name: Bump rust to latest (ci-llvm survival)
+        if: steps.tag.outputs.skip != 'true'
+        working-directory: openwrt
+        run: |
+          # rust-lang 会定期清掉旧版 stable 的 ci-artifacts（1.96.0 的 rust-dev 已 NoSuchKey），
+          # 而 rust 引导默认 download-ci-llvm=true 必须下到那个产物。快照钉的 rust 版本若被清就必挂。
+          # 方案：构建时把 rust 包升到 immortalwrt/packages master 最新版（产物通常都在），保 shadowsocks-rust 等。
+          RF="feeds/packages/lang/rust/Makefile"
+          [ -f "$RF" ] || { echo "FATAL: rust Makefile 不存在 $RF"; exit 1; }
+          MASTER=$(curl -sf "https://raw.githubusercontent.com/immortalwrt/packages/master/lang/rust/Makefile") || { echo "FATAL: 拉取 master rust Makefile 失败"; exit 1; }
+          NEWVER=$(echo "$MASTER" | grep -oE '^PKG_VERSION:=[0-9.]+' | cut -d= -f2)
+          NEWHASH=$(echo "$MASTER" | grep -oE '^PKG_HASH:=[0-9a-f]{64}' | cut -d= -f2)
+          [ -n "$NEWVER" ] && [ -n "$NEWHASH" ] || { echo "FATAL: master rust 版本/哈希解析失败 ($NEWVER/$NEWHASH)"; exit 1; }
+          OLDVER=$(grep -oE '^PKG_VERSION:=[0-9.]+' "$RF" | cut -d= -f2)
+          sed -i "s/^PKG_VERSION:=.*/PKG_VERSION:=$NEWVER/" "$RF"
+          sed -i "s/^PKG_HASH:=.*/PKG_HASH:=$NEWHASH/" "$RF"
+          echo "rust bumped $OLDVER -> $NEWVER"
+          # 校验该版本的 ci-llvm 产物真的活着（防上游又清新版本）
+          CH=$(curl -sf "https://static.rust-lang.org/dist/channel-rust-${NEWVER}.toml" | grep -oE 'git_commit_hash = "[0-9a-f]{40}"' | head -1 | grep -oE '[0-9a-f]{40}')
+          CODE=$(curl -s -o /dev/null -w '%{http_code}' "https://ci-artifacts.rust-lang.org/rustc-builds/${CH}/rust-dev-${NEWVER}-x86_64-unknown-linux-gnu.tar.xz")
+          [ "$CODE" = "200" ] || { echo "FATAL: rust $NEWVER ci-llvm 产物也不可用(HTTP $CODE)，构建必挂"; exit 1; }
+          echo "rust-gate PASS: $NEWVER ci-llvm HTTP $CODE"
+
       - name: Configure
         if: steps.tag.outputs.skip != 'true'
         working-directory: openwrt
@@ -144,11 +167,6 @@ jobs:
               exit 1; }
           done
           grep -q "^CONFIG_TARGET_ROOTFS_PARTSIZE=976$" .config || { echo "FATAL: PARTSIZE 丢失"; exit 1; }
-          # rust 闸门：passwall 的 shadowsocks-rust 在 x86_64 默认开，会拖 rust/host 编译，
-          # 而当前快照钉的 rust 1.96.0 ci-llvm 产物已被上游清除必然 404。必须确认已被关闭。
-          grep -q "^CONFIG_PACKAGE_luci-app-passwall_INCLUDE_Shadowsocks_Rust_Client=y$" .config && { echo "FATAL: shadowsocks-rust Client 又被选中(会拖 rust 编译挂死)"; exit 1; }
-          grep -q "^CONFIG_PACKAGE_shadowsocks-rust=y$" .config && { echo "FATAL: shadowsocks-rust 又被选中(会拖 rust 编译挂死)"; exit 1; }
-          echo "rust-gate PASS (shadowsocks-rust 已关)"
           # 出处断言：关键包必须来自第三方源，且官方同名副本不得同时在链
           [ -e package/feeds/mosdns/mosdns ] && [ ! -e package/feeds/packages/mosdns ] || { echo "FATAL: mosdns 出处不对(sbwml未胜出或官方重复在链)"; ls package/feeds/*/mosdns 2>/dev/null; exit 1; }
           [ -e package/feeds/passwall_luci/luci-app-passwall ] && [ ! -e package/feeds/luci/luci-app-passwall ] || { echo "FATAL: passwall 出处不对"; ls package/feeds/*/luci-app-passwall 2>/dev/null; exit 1; }

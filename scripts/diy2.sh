@@ -28,13 +28,4 @@ done
 # 关掉 apk 时代的默认瘦身/无关大件（若存在）
 sed -i 's/^CONFIG_PACKAGE_luci-app-turboacc=y/# &/' .config || true
 
-# 关掉 passwall 的 shadowsocks-rust 客户端/服务端（x86_64 上默认开启，
-# 会拉 shadowsocks-rust -> rust/host 编译；而快照钉死的 rust 1.96.0 的
-# ci-llvm 预编译产物已被 rust-lang 服务器清除，编到那必然 404 死）
-for opt in Shadowsocks_Rust_Client Shadowsocks_Rust_Server; do
-  key="CONFIG_PACKAGE_luci-app-passwall_INCLUDE_${opt}"
-  sed -i "/^${key}=/d;/^# ${key}/d" .config
-  echo "# ${key} is not set" >> .config
-done
-
 echo "diy2 done"
